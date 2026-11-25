@@ -1,5 +1,7 @@
 """SheerID 本地自动化模块 (基于 DrissionPage 原生无痕过盾，每次动态生成全新真实学生身份)"""
+import glob
 import os
+import shutil
 import sys
 import time
 import logging
@@ -27,6 +29,37 @@ MONTH_LOOKUP = {
     "11": ["十一月", "Nov", "11月", "11"],
     "12": ["十二月", "Dec", "12月", "12"],
 }
+
+
+def _find_browser_path() -> Optional[str]:
+    """查找可用的 Chrome / Chromium 可执行文件路径"""
+    env_path = os.getenv("CHROME_PATH") or os.getenv("BROWSER_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    if sys.platform == "win32":
+        win_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        for path in win_candidates:
+            if os.path.exists(path):
+                return path
+    else:
+        for cmd in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            found = shutil.which(cmd)
+            if found:
+                return found
+
+        pw_candidates = sorted(
+            glob.glob(os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome")),
+            reverse=True,
+        )
+        for path in pw_candidates:
+            if os.path.exists(path):
+                return path
+
+    return None
 
 
 def run_browser_automation(verification_url: str, school_id: str = "2565") -> Dict:
@@ -61,7 +94,9 @@ def run_browser_automation(verification_url: str, school_id: str = "2565") -> Di
 
     # 2. 自动获取本机真实可用代理（如 Clash 127.0.0.1:7897）
     co = ChromiumOptions()
-    co.set_browser_path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    browser_path = _find_browser_path()
+    if browser_path:
+        co.set_browser_path(browser_path)
     co.set_local_port(9333)
     user_data_dir = os.path.abspath("dp_user_data")
     co.set_user_data_path(user_data_dir)
@@ -73,7 +108,17 @@ def run_browser_automation(verification_url: str, school_id: str = "2565") -> Di
     else:
         print("🌐 2. 未检测到本地代理，使用网络直连模式")
         
-    co.headless(False)
+    if sys.platform.startswith("linux"):
+        co.set_argument("--no-sandbox")
+        co.set_argument("--disable-dev-shm-usage")
+        has_display = bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
+        if not has_display:
+            co.headless(True)
+            co.set_argument("--headless=new")
+        else:
+            co.headless(False)
+    else:
+        co.headless(False)
 
     page = ChromiumPage(co)
     try:
