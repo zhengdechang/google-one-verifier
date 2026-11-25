@@ -15,6 +15,7 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import logging
+import traceback
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -124,7 +125,17 @@ def main():
         except (KeyboardInterrupt, EOFError):
             print("\n👋 用户终止操作，已退出。")
             break
+        except Exception as e:
+            print(f"\n❌ 运行出错: {e}")
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\n❌ 程序异常退出: {e}")
+        traceback.print_exc()
+        if len(sys.argv) <= 1:
+            input("\n按回车键退出...")
+        sys.exit(1)

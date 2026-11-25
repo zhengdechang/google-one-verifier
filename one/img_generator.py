@@ -352,27 +352,69 @@ def generate_image(first_name, last_name, school_id='2565'):
     Returns:
         bytes: PNG 图片数据
     """
+    html_content = generate_html(first_name, last_name, school_id)
+
     try:
         from playwright.sync_api import sync_playwright
 
-        # 生成 HTML
-        html_content = generate_html(first_name, last_name, school_id)
-
-        # 使用 Playwright 截图（替代 Selenium）
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 1200, 'height': 900})
             page.set_content(html_content, wait_until='load')
-            page.wait_for_timeout(500)  # 等待样式加载
+            page.wait_for_timeout(500)
             screenshot_bytes = page.screenshot(type='png', full_page=True)
             browser.close()
 
         return screenshot_bytes
+    except Exception:
+        pass
 
-    except ImportError:
-        raise Exception("需要安装 playwright: pip install playwright && playwright install chromium")
+    # Fallback: 使用 DrissionPage + 本地 Chrome/Edge/Chromium 无头截图
+    import os
+    import sys
+    import tempfile
+    import time
+    from pathlib import Path
+    from DrissionPage import ChromiumPage, ChromiumOptions
+    from browser_automation import _find_browser_path
+
+    tmp_html = None
+    page = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".html", encoding="utf-8", delete=False) as f:
+            f.write(html_content)
+            tmp_html = f.name
+
+        co = ChromiumOptions()
+        browser_path = _find_browser_path()
+        if browser_path:
+            co.set_browser_path(browser_path)
+        co.auto_port()
+        co.headless(True)
+        co.set_argument("--headless=new")
+        co.set_argument("--window-size=1200,900")
+        if sys.platform.startswith("linux"):
+            co.set_argument("--no-sandbox")
+            co.set_argument("--disable-dev-shm-usage")
+
+        page = ChromiumPage(co)
+        page.get(Path(tmp_html).as_uri())
+        time.sleep(0.5)
+        screenshot_bytes = page.get_screenshot(as_bytes="png", full_page=True)
+        return screenshot_bytes
     except Exception as e:
         raise Exception(f"生成图片失败: {str(e)}")
+    finally:
+        if page is not None:
+            try:
+                page.quit()
+            except Exception:
+                pass
+        if tmp_html and os.path.exists(tmp_html):
+            try:
+                os.remove(tmp_html)
+            except Exception:
+                pass
 
 
 if __name__ == '__main__':
